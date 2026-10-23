@@ -8,6 +8,7 @@ import SettingClash from '@/components/setting/setting-clash'
 import SettingSystem from '@/components/setting/setting-system'
 import SettingVergeAdvanced from '@/components/setting/setting-verge-advanced'
 import SettingVergeBasic from '@/components/setting/setting-verge-basic'
+import { ProxyQuickToggles } from '@/components/shared/proxy-quick-toggles'
 import { showNotice } from '@/services/notice-service'
 import { useThemeMode } from '@/services/states'
 import { openExternalUrl } from '@/utils/open-external-url'
@@ -42,36 +43,41 @@ const SettingPage = () => {
     <BasePage
       title={t('settings.page.title')}
       header={
-        <ButtonGroup
-          variant="contained"
-          aria-label={t('settings.page.actionsGroupLabel')}
-        >
-          <IconButton
-            size="medium"
-            color="inherit"
-            title={t('settings.page.actions.manual')}
-            onClick={toGithubDoc}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ButtonGroup variant="contained">
+            <ProxyQuickToggles />
+          </ButtonGroup>
+          <ButtonGroup
+            variant="contained"
+            aria-label={t('settings.page.actionsGroupLabel')}
           >
-            <HelpOutlineRounded fontSize="inherit" />
-          </IconButton>
-          <IconButton
-            size="medium"
-            color="inherit"
-            title={t('settings.page.actions.telegram')}
-            onClick={toTelegramChannel}
-          >
-            <Telegram fontSize="inherit" />
-          </IconButton>
+            <IconButton
+              size="medium"
+              color="inherit"
+              title={t('settings.page.actions.manual')}
+              onClick={toGithubDoc}
+            >
+              <HelpOutlineRounded fontSize="inherit" />
+            </IconButton>
+            <IconButton
+              size="medium"
+              color="inherit"
+              title={t('settings.page.actions.telegram')}
+              onClick={toTelegramChannel}
+            >
+              <Telegram fontSize="inherit" />
+            </IconButton>
 
-          <IconButton
-            size="medium"
-            color="inherit"
-            title={t('settings.page.actions.github')}
-            onClick={toGithubRepo}
-          >
-            <GitHub fontSize="inherit" />
-          </IconButton>
-        </ButtonGroup>
+            <IconButton
+              size="medium"
+              color="inherit"
+              title={t('settings.page.actions.github')}
+              onClick={toGithubRepo}
+            >
+              <GitHub fontSize="inherit" />
+            </IconButton>
+          </ButtonGroup>
+        </Box>
       }
     >
       <Grid container spacing={1.5} columns={{ xs: 6, sm: 6, md: 12 }}>

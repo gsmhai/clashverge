@@ -1,0 +1,208 @@
+name: Release Windows
+
+# Manual only, and only from the `feat/quick-switch` branch: builds the Windows x64 NSIS
+# installer plus a portable overlay zip and publishes exactly two assets,
+# `Clash Verge_<version>_x64-setup.exe` and `Clash Verge_<version>_x64-portable.zip`.
+on:
+  workflow_dispatch:
+    branches:
+      - feat/quick-switch
+    inputs:
+      tag:
+        description: 'Release tag (empty: v<package.json version>)'
+        required: false
+        type: string
+      draft:
+        description: 'Publish as a draft release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  HUSKY: 0
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+  TARGET: x86_64-pc-windows-msvc
+
+# Never cancel a release in flight; wait for the running build instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-installer:
+    name: Windows x64 installer
+    runs-on: windows-latest
+    steps:
+      - name: Require feat/quick-switch branch
+        if: github.ref != 'refs/heads/feat/quick-switch'
+        run: |
+          echo "This workflow may only run from the feat/quick-switch branch (got ${{ github.ref }})." >&2
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.21.0'
+          cache: 'pnpm'
+
+      - name: Resolve version and tag
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="v$VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION for tag $TAG"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.0'
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: 'rust-shared-stable-${{ env.TARGET }}-setup'
+          workspaces: |
+            . -> target
+          cache-all-crates: true
+          cache-workspace-crates: true
+
+      - name: Pnpm install and prebuild
+        run: |
+          pnpm i --frozen-lockfile
+          pnpm run prebuild ${{ env.TARGET }}
+
+      - name: Drop updater artifacts
+        shell: bash
+        run: |
+          # The updater's .sig/.nsis.zip side artifacts require the signing key,
+          # which a fork usually does not have; only the installer is published.
+          node --input-type=module -e "
+            import fs from 'node:fs'
+            const file = 'src-tauri/tauri.conf.json'
+            const config = JSON.parse(fs.readFileSync(file, 'utf8'))
+            config.bundle.createUpdaterArtifacts = false
+            fs.writeFileSync(file, JSON.stringify(config, null, 2))
+          "
+
+      - name: Tauri build
+        uses: tauri-apps/tauri-action@v1
+        env:
+          NODE_OPTIONS: '--max_old_space_size=4096'
+        with:
+          tauriScript: pnpm
+          args: --target ${{ env.TARGET }} --bundles nsis
+
+      - name: Locate installer
+        id: installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          candidates=(target/${{ env.TARGET }}/release/bundle/nsis/*-setup.exe)
+          if [ "${#candidates[@]}" -ne 1 ]; then
+            echo "Expected one installer, found ${#candidates[@]}" >&2
+            printf '%s\n' "${candidates[@]}" >&2
+            exit 1
+          fi
+          FILE="${candidates[0]}"
+          NAME="$(basename "$FILE")"
+          EXPECTED="Clash Verge_${{ steps.version.outputs.version }}_x64-setup.exe"
+          if [ "$NAME" != "$EXPECTED" ]; then
+            echo "Unexpected installer name: $NAME (expected $EXPECTED)" >&2
+            exit 1
+          fi
+          echo "path=$FILE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer
+          path: ${{ steps.installer.outputs.path }}
+          if-no-files-found: error
+          archive: false
+
+      - name: Package portable zip
+        id: portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rel = 'target/x86_64-pc-windows-msvc/release'
+          $stage = 'portable'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          # The Tauri frontend is embedded inside the main executable, so the
+          # overlay zip ships it (plus resources/sidecars when the CLI staged
+          # them in the release dir). Dropping these over an existing same-base
+          # install applies the fork changes without running the installer.
+          $main = @("$rel/Clash Verge.exe", "$rel/clash-verge.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $main) { throw "main executable not found in $rel" }
+          Copy-Item $main "$stage/clash-verge.exe"
+
+          if (Test-Path "$rel/resources") {
+            Copy-Item "$rel/resources" "$stage/resources" -Recurse
+          }
+          Get-ChildItem "$rel/verge-mihomo*.exe" -ErrorAction SilentlyContinue |
+            ForEach-Object {
+              $name = $_.Name -replace '-x86_64-pc-windows-msvc', ''
+              Copy-Item $_.FullName "$stage/$name"
+            }
+
+          $zip = "Clash.Verge_${{ steps.version.outputs.version }}_x64-portable.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-portable
+          path: ${{ steps.portable.outputs.zip }}
+          if-no-files-found: error
+          archive: false
+
+      - name: Generate release notes
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          URL="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          cat > release.txt << EOF
+          ## Windows (x64)
+
+          - [Clash Verge $VERSION 安装包]($URL/Clash.Verge_${VERSION}_x64-setup.exe)
+          - [Clash Verge $VERSION 免安装替换包（覆盖到安装目录即可）]($URL/Clash.Verge_${VERSION}_x64-portable.zip)
+          EOF
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: 'Clash Verge ${{ steps.version.outputs.tag }}'
+          body_path: release.txt
+          draft: ${{ inputs.draft }}
+          prerelease: false
+          files: |
+            ${{ steps.installer.outputs.path }}
+            ${{ steps.portable.outputs.zip }}
+          token: ${{ secrets.GITHUB_TOKEN }}

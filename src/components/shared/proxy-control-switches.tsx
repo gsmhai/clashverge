@@ -13,12 +13,10 @@ import { useTranslation } from 'react-i18next'
 import { type DialogRef, Switch, TooltipIcon } from '@/components/base'
 import { SysproxyViewer } from '@/components/setting/mods/sysproxy-viewer'
 import { TunViewer } from '@/components/setting/mods/tun-viewer'
+
+import { useProxyToggles } from '@/hooks/use-proxy-toggles'
 import { useServiceUninstaller } from '@/hooks/use-service-uninstaller'
-import { useSystemProxyState } from '@/hooks/use-system-proxy-state'
-import { useSystemState } from '@/hooks/use-system-state'
-import { useVerge } from '@/hooks/use-verge'
 import { showNotice } from '@/services/notice-service'
-import { requestService } from '@/services/service-request'
 
 interface ProxySwitchProps {
   label?: string
@@ -133,39 +131,21 @@ const ProxyControlSwitches = ({
   noRightPadding = false,
 }: ProxySwitchProps) => {
   const { t } = useTranslation()
-  const { verge, mutateVerge, patchVerge } = useVerge()
   const { uninstallServiceAndStartSidecar } = useServiceUninstaller()
-  const { indicator: systemProxyIndicator, toggleSystemProxy } =
-    useSystemProxyState()
-  const { runState, isTunModeAvailable, isLoading } = useSystemState()
+  const {
+    systemProxyEnabled,
+    tunModeEnabled,
+    tunModeAvailable,
+    serviceUsable,
+    toggleSystemProxy,
+    toggleTunMode,
+  } = useProxyToggles()
+
   // Offer to uninstall only a service that is actually there and working.
-  const isServiceInstallReady = runState.serviceUsable
+  const isServiceInstallReady = serviceUsable
 
   const sysproxyRef = useRef<DialogRef>(null)
   const tunRef = useRef<DialogRef>(null)
-
-  const { enable_tun_mode } = verge ?? {}
-
-  // Enabling needs a running core; disabling only writes OS state and must stay available.
-  const handleSystemProxyToggle = async (value: boolean) => {
-    if (value && !isLoading && runState.mode === 'NotRunning') {
-      showNotice.error('settings.feedback.errors.sysproxy.coreNotReady')
-      return false
-    }
-    await toggleSystemProxy(value)
-  }
-
-  const handleTunToggle = async (value: boolean) => {
-    if (value && !isTunModeAvailable) {
-      requestService({
-        reason: 'tunNeedsService',
-        restore: { enable_tun_mode: value },
-      })
-      return false
-    }
-    mutateVerge({ ...verge, enable_tun_mode: value }, false)
-    await patchVerge({ enable_tun_mode: value })
-  }
 
   const onUninstallService = useLockFn(async () => {
     try {
@@ -184,27 +164,27 @@ const ProxyControlSwitches = ({
       {isSystemProxyMode && (
         <SwitchRow
           label={t('settings.sections.proxyControl.fields.systemProxy')}
-          active={systemProxyIndicator}
+          active={systemProxyEnabled}
           infoTitle={t('settings.sections.proxyControl.tooltips.systemProxy')}
           onInfoClick={() => sysproxyRef.current?.open()}
-          onToggle={handleSystemProxyToggle}
+          onToggle={toggleSystemProxy}
           onError={onError}
-          highlight={systemProxyIndicator}
+          highlight={systemProxyEnabled}
         />
       )}
 
       {isTunMode && (
         <SwitchRow
           label={t('settings.sections.proxyControl.fields.tunMode')}
-          active={(enable_tun_mode && isTunModeAvailable) || false}
+          active={tunModeEnabled}
           infoTitle={t('settings.sections.proxyControl.tooltips.tunMode')}
           onInfoClick={() => tunRef.current?.open()}
-          onToggle={handleTunToggle}
+          onToggle={toggleTunMode}
           onError={onError}
-          highlight={(enable_tun_mode && isTunModeAvailable) || false}
+          highlight={tunModeEnabled}
           extraIcons={
             <>
-              {!isTunModeAvailable && (
+              {!tunModeAvailable && (
                 <TooltipIcon
                   title={t(
                     'settings.sections.proxyControl.tooltips.tunUnavailable',
