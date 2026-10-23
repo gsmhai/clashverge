@@ -39,6 +39,7 @@ import {
   type ProfileViewerRef,
 } from '@/components/profile/profile-viewer'
 import { ConfigViewer } from '@/components/setting/mods/config-viewer'
+import { ProxyQuickToggles } from '@/components/shared/proxy-quick-toggles'
 import { fetchProfilesIntoCache, useProfiles } from '@/hooks/use-profiles'
 import {
   createProfile,
@@ -692,6 +693,11 @@ const ProfilePage = () => {
       contentStyle={{ height: '100%' }}
       header={
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 1 }}
+          >
+            <ProxyQuickToggles />
+          </Box>
           {!batchMode ? (
             <>
               {/* Batch mode toggle button */}

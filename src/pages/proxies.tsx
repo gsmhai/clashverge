@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { BasePage, TooltipIcon } from '@/components/base'
 import { ProviderButton } from '@/components/proxy/provider-button'
 import { ProxyGroups } from '@/components/proxy/proxy-groups'
+import { ProxyQuickToggles } from '@/components/shared/proxy-quick-toggles'
 import {
   useAppRefreshers,
   useClashConfigData,
@@ -161,6 +162,11 @@ const ProxyPage = () => {
       }
       header={
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 1 }}
+          >
+            <ProxyQuickToggles />
+          </Box>
           <ProviderButton />
 
           <ButtonGroup size="small">
