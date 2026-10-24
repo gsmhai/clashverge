@@ -1,7 +1,8 @@
 name: Release Windows
 
 # Manual only, and only from the `feat/quick-switch` branch: builds the Windows x64 NSIS
-# installer and publishes exactly one asset, `Clash Verge_<version>_x64-setup.exe`.
+# installer plus a portable overlay zip and publishes exactly two assets,
+# `Clash Verge_<version>_x64-setup.exe` and `Clash.Verge_<version>_x64-portable.zip`.
 on:
   workflow_dispatch:
     branches:
@@ -140,6 +141,45 @@ jobs:
           if-no-files-found: error
           archive: false
 
+      - name: Package portable zip
+        id: portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rel = 'target/x86_64-pc-windows-msvc/release'
+          $stage = 'portable'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          # The Tauri frontend is embedded inside the main executable, so the
+          # overlay zip ships it (plus resources/sidecars when the CLI staged
+          # them in the release dir). Dropping these over an existing same-base
+          # install applies the fork changes without running the installer.
+          $main = @("$rel/Clash Verge.exe", "$rel/clash-verge.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $main) { throw "main executable not found in $rel" }
+          Copy-Item $main "$stage/Clash Verge.exe"
+
+          if (Test-Path "$rel/resources") {
+            Copy-Item "$rel/resources" "$stage/resources" -Recurse
+          }
+          Get-ChildItem "$rel/verge-mihomo*.exe" -ErrorAction SilentlyContinue |
+            ForEach-Object {
+              $name = $_.Name -replace '-x86_64-pc-windows-msvc', ''
+              Copy-Item $_.FullName "$stage/$name"
+            }
+
+          $zip = "Clash.Verge_${{ steps.version.outputs.version }}_x64-portable.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-portable
+          path: ${{ steps.portable.outputs.zip }}
+          if-no-files-found: error
+          archive: false
+
       - name: Generate release notes
         shell: bash
         run: |
@@ -150,6 +190,7 @@ jobs:
           ## Windows (x64)
 
           - [Clash Verge $VERSION 安装包]($URL/Clash.Verge_${VERSION}_x64-setup.exe)
+          - [Clash Verge $VERSION 免安装替换包（覆盖到安装目录即可）]($URL/Clash.Verge_${VERSION}_x64-portable.zip)
           EOF
 
       - name: Publish release
@@ -161,5 +202,7 @@ jobs:
           body_path: release.txt
           draft: ${{ inputs.draft }}
           prerelease: false
-          files: ${{ steps.installer.outputs.path }}
+          files: |
+            ${{ steps.installer.outputs.path }}
+            ${{ steps.portable.outputs.zip }}
           token: ${{ secrets.GITHUB_TOKEN }}

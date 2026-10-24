@@ -78,7 +78,18 @@ export const ProxyQuickToggles = () => {
     >
       <Icon
         fontSize="inherit"
-        sx={{ color: active ? 'success.main' : 'text.disabled' }}
+        sx={{
+          // Off keeps full-strength text colour (the disabled grey read as
+          // invisible); on switches to the theme primary and inherits a fat
+          // SVG stroke, since these icons are filled paths, not real strokes.
+          color: active ? 'primary.main' : 'text.primary',
+          ...(active && {
+            stroke: 'currentColor',
+            strokeWidth: 1.5,
+            strokeLinejoin: 'round',
+            strokeLinecap: 'round',
+          }),
+        }}
       />
     </IconButton>
   ))
